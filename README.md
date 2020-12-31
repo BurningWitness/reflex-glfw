@@ -1,3 +1,3 @@
 # reflex-glfw
 
-A [http://hackage.haskell.org/package/reflex](reflex) host based on [http://hackage.haskell.org/package/GLFW-b](GLFW-b).
+A [reflex](http://hackage.haskell.org/package/reflex) host based on [GLFW-b](http://hackage.haskell.org/package/GLFW-b).
