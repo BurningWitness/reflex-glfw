@@ -1,0 +1,45 @@
+name:                reflex-glfw
+version:             0.1.0.0
+github:              burningwitness/reflex-glfw
+license:             BSD3
+license-file:        LICENSE
+author:              Oleksii Divak
+maintainer:          Oleksii Divak <frozenwitness@gmail.com>
+copyright:           (c) 2020, Oleksii Divak
+
+extra-source-files:
+- README.md
+
+synopsis:            Reflex FRP host based on GLFW
+category:            FRP
+
+description:         Please see the README on GitHub at <https://github.com/burningwitness/reflex-glfw#readme>
+
+dependencies:
+- base >= 4.9 && < 4.14
+- containers
+- dependent-sum
+- GLFW-b >= 3.2 && < 4
+- reflex
+- ref-tf
+
+ghc-options:
+- -Wall
+
+library:
+  source-dirs: src
+
+tests:
+  reflex-glfw-test:
+    main:                Spec.hs
+    source-dirs:         test
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -O2
+    dependencies:
+    - dependent-map
+    - dependent-sum-template
+    - reflex-glfw
+    - witherable

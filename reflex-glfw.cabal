@@ -1,0 +1,67 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.33.0.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: cc2b40c92cbe666685b8a2616f8401299d845145d322cd03848cefd2ae329af3
+
+name:           reflex-glfw
+version:        0.1.0.0
+synopsis:       Reflex FRP host based on GLFW
+description:    Please see the README on GitHub at <https://github.com/burningwitness/reflex-glfw#readme>
+category:       FRP
+homepage:       https://github.com/burningwitness/reflex-glfw#readme
+bug-reports:    https://github.com/burningwitness/reflex-glfw/issues
+author:         Oleksii Divak
+maintainer:     Oleksii Divak <frozenwitness@gmail.com>
+copyright:      (c) 2020, Oleksii Divak
+license:        BSD3
+license-file:   LICENSE
+build-type:     Simple
+extra-source-files:
+    README.md
+
+source-repository head
+  type: git
+  location: https://github.com/burningwitness/reflex-glfw
+
+library
+  exposed-modules:
+      Graphics.UI.GLFW.Reexport
+      Reflex.Host.GLFW
+      Reflex.Host.GLFW.Internal
+  other-modules:
+      Paths_reflex_glfw
+  hs-source-dirs:
+      src
+  ghc-options: -Wall
+  build-depends:
+      GLFW-b >=3.2 && <4
+    , base >=4.9 && <4.14
+    , containers
+    , dependent-sum
+    , ref-tf
+    , reflex
+  default-language: Haskell2010
+
+test-suite reflex-glfw-test
+  type: exitcode-stdio-1.0
+  main-is: Spec.hs
+  other-modules:
+      Paths_reflex_glfw
+  hs-source-dirs:
+      test
+  ghc-options: -Wall -threaded -rtsopts -with-rtsopts=-N -O2
+  build-depends:
+      GLFW-b >=3.2 && <4
+    , base >=4.9 && <4.14
+    , containers
+    , dependent-map
+    , dependent-sum
+    , dependent-sum-template
+    , ref-tf
+    , reflex
+    , reflex-glfw
+    , witherable
+  default-language: Haskell2010

@@ -1,0 +1,24 @@
+language: haskell
+cabal: "3.2"
+
+env:
+- GLFWVER=3.2.1.1
+- GLFWVER=3.3.0.0
+
+ghc:
+- "8.6.5"
+- "8.8.4"
+
+before_install:
+- travis_retry cabal new-update
+- sudo apt-get update
+- sudo apt-get -y install mesa-common-dev libgl1-mesa-dev libxi-dev libxrandr-dev libxxf86vm-dev libxcursor-dev libxinerama-dev
+- cabal new-configure --constraint "GLFW-b == $GLFWVER"
+
+install: cabal new-install --lib --only-dependencies
+
+script: cabal new-build
+
+cache:
+  directories:
+  - $HOME/.cabal
