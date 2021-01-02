@@ -1,11 +1,11 @@
 name:                reflex-glfw
-version:             0.1.0.0
+version:             0.1.0.1
 github:              burningwitness/reflex-glfw
 license:             BSD3
 license-file:        LICENSE
 author:              Oleksii Divak
 maintainer:          Oleksii Divak <frozenwitness@gmail.com>
-copyright:           (c) 2020, Oleksii Divak
+copyright:           (c) 2021, Oleksii Divak
 
 extra-source-files:
 - README.md

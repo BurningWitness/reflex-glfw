@@ -280,17 +280,17 @@ hostGLFW network =
 
     liftIO .
       finally
-      ( do makeContextCurrent Nothing
-           killThread triggerThread
-      )
-      . fix $ \loop -> do
-          -- Check whether we should quit
-          hasQuit <- readRef quitRef
+        ( fix $ \loop -> do
+            -- Check whether we should quit
+            hasQuit <- readRef quitRef
 
-          unless hasQuit $ do
-            GLFW.waitEvents
-            loop
-
+            unless hasQuit $ do
+              GLFW.waitEvents
+              loop
+        )
+        -- Cleanup after the program quits
+        $ do makeContextCurrent Nothing
+             killThread triggerThread
 
 
 -- | 'GLFW.createWindow' re-export in the case you wish to create a window without setting up the callbacks.
