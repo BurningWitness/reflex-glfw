@@ -65,7 +65,7 @@ network
 
 network fire GlobalE {..} = mdo
 
-  (_mainWindowB, mainWindowE) <-
+  (mainWindowD, mainWindowE) <-
     createWindow
       fire
       ( CreateWindow (500, 500) "TestMain" Nothing Nothing <$ leftmost
@@ -74,6 +74,9 @@ network fire GlobalE {..} = mdo
                                                                 ]
       )
       $ () <$ mainCloseE
+
+  performEvent_ $ liftIO . print . ("Main window action: " <>) . show
+                    <$> updated mainWindowD
 
   let bindings (_, Key'Enter , _, KeyState'Pressed, _) = [Spawn       :=> Identity ()]
       bindings (_, Key'B     , _, KeyState'Pressed, _) = [BrokenSpawn :=> Identity ()]
@@ -90,7 +93,7 @@ network fire GlobalE {..} = mdo
       mainSpawnE  = mainControls `select` Spawn
       mainBrokenE = mainControls `select` BrokenSpawn
 
-  (_auxWindowB, auxWindowE) <-
+  (auxWindowF, _auxWindowB, auxWindowE) <-
     createWindows
       fire
       (CreateWindow (200, 200) "TestAux" Nothing Nothing <$ mainSpawnE)
@@ -98,6 +101,9 @@ network fire GlobalE {..} = mdo
           [ Just <$> auxCloseE
           , Nothing <$ mainCloseE
           ]
+
+  performEvent_ $ liftIO . print . ("Auxiliary window action: " <>) . show
+                    <$> auxWindowF
 
   let auxControls = fan . fmap DM.fromList $ foldMap bindings <$> keyE auxWindowE
 

@@ -36,6 +36,7 @@ import           Control.Monad.IO.Class
 import           Control.Monad.Ref
 import           Data.Dependent.Sum
 import           Data.Foldable
+import           Data.Functor ((<&>))
 import           Data.Functor.Identity
 import           Data.Maybe (fromMaybe, isNothing, isJust)
 import           Data.Map (Map)
@@ -87,29 +88,34 @@ createWindow
      , TriggerEvent t m
      )
   => Fire t h a
-  -> Event t CreateWindow
-  -> Event t ()
-  -> m (Behavior t (Maybe Window), WindowE Identity t)
+  -> Event t CreateWindow         -- ^ Window creation event
+  -> Event t ()                   -- ^ Window destruction event
+  -> m ( Dynamic t (Maybe Window)
+       , WindowE Identity t
+       )
 createWindow (Fire fire) (bearE :: Event t CreateWindow) killE = mdo
 
   createdE <- performEvent $
-                (\(CreateWindow s t m w) -> liftIO $ hostWindow fire s t m w)
-                   <$> gate (isNothing <$> windowB) bearE
+                gate (isNothing <$> windowB) bearE <&>
+                  \(CreateWindow s t m w) -> liftIO $ hostWindow fire s t m w
 
-  windowBE <- hold Nothing $ leftmost
-                               [ createdE
-                               , Nothing <$ killE
-                               ]
+  destroyedE <- performEvent $ liftIO . GLFW.destroyWindow <$> tagMaybe windowB killE
 
-  let windowB = fmap fst <$> windowBE
-      windowE = fmap snd <$> windowBE
+  -- Dynamic t (Maybe (Window, WindowE Identity t))
+  windowDE <- holdDyn Nothing $ leftmost
+                                  [ createdE
+                                  , Nothing <$ destroyedE
+                                  ]
 
-  performEvent_ $ liftIO . GLFW.destroyWindow <$> tagMaybe windowB killE
+  let windowD = fmap fst <$> windowDE
+      windowB = current windowD
+      -- A behavior with all the callbacks
+      windowBE = fmap snd <$> current windowDE
 
   return
-    ( windowB
+    ( windowD
     , let grab :: (WindowE Identity t -> Event t a) -> Event t a
-          grab f = switch $ fromMaybe never . fmap f <$> windowE
+          grab f = switch $ fromMaybe never . fmap f <$> windowBE
       in WindowE
            { windowPositionE     = grab windowPositionE
            , windowSizeE         = grab windowSizeE
@@ -135,11 +141,15 @@ createWindow (Fire fire) (bearE :: Event t CreateWindow) killE = mdo
 
 
 
+data WindowAction = CouldNotCreateWindow
+                  | CreatedWindow GLFW.Window
+                  | DestroyedWindow GLFW.Window
+                  | DestroyedAllWindows (Set GLFW.Window)
+                    deriving Show
+
 -- | A variation of 'Reflex.Host.GLFW.createWindows' that holds a 'Set' of 'Window's.
 --
 --   'WindowE' combines events for all windows initialized.
---
---   Passing 'Nothing' to the kill event will destroy all held windows.
 createWindows
   :: ( SpiderTimeline Global ~ t
      , SpiderHost Global ~ h
@@ -151,13 +161,26 @@ createWindows
      , TriggerEvent t m
      )
   => Fire t h a
-  -> Event t CreateWindow
-  -> Event t (Maybe Window)
-  -> m (Behavior t (Set Window), WindowE (Map Window) t)
-createWindows (Fire fire) (bearE :: Event t CreateWindow) killE = do
+  -> Event t CreateWindow        -- ^ Window creation event
+  -> Event t (Maybe Window)      -- ^ Window destruction event. 'Nothing' destroys all windows.
+  -> m ( Event t WindowAction
+       , Behavior t (Set Window)
+       , WindowE (Map Window) t
+       )
+createWindows (Fire fire) (bearE :: Event t CreateWindow) killE = mdo
 
   createdE <- performEvent $
-                (\(CreateWindow s t m w) -> liftIO $ hostWindow fire s t m w) <$> bearE
+                bearE <&>
+                  \(CreateWindow s t m w) -> liftIO $ hostWindow fire s t m w
+
+  destroyedE <- performEvent $
+                  attach windowBE killE <&>
+                    \(windows, mayWindow) -> do
+                       liftIO $
+                         case mayWindow of
+                           Nothing     -> mapM_ GLFW.destroyWindow windows
+                           Just window -> GLFW.destroyWindow window
+                       return mayWindow
 
   let pick ws action =
         case action of
@@ -166,21 +189,30 @@ createWindows (Fire fire) (bearE :: Event t CreateWindow) killE = do
           Left Nothing         -> Map.empty
           Left (Just w)        -> Map.delete w    ws
 
-  windowBE <- accumB (foldl' pick) Map.empty
+  windowDE <- accumDyn (foldl' pick) Map.empty
                 $ mergeList
                     [ Right <$> createdE
-                    , Left <$> killE
+                    , Left <$> destroyedE
                     ]
 
-  let windowB = Map.keysSet <$> windowBE
-
-  performEvent_ $ liftIO . GLFW.destroyWindow <$> mapMaybe id killE
-  performEvent_ $ liftIO . mapM_ GLFW.destroyWindow <$> windowB <@ ffilter (== Nothing) killE
+  let windowBE = Map.keysSet <$> current windowDE
 
   return
-    ( windowB
+    ( leftmost
+        [ createdE <&>
+            \mayWindow ->
+              case mayWindow of
+                Nothing     -> CouldNotCreateWindow
+                Just (w, _) -> CreatedWindow w
+        , attach windowBE destroyedE <&>
+            \(windows, mayWindow) ->
+              case mayWindow of
+                Nothing -> DestroyedAllWindows windows
+                Just w  -> DestroyedWindow w
+        ]
+    , windowBE
     , let grab :: (WindowE Identity t -> Event t a) -> Event t (Map Window a)
-          grab f = switch $ mergeMap . fmap f <$> windowBE
+          grab f = switch $ mergeMap . fmap f <$> current windowDE
       in WindowE
            { windowPositionE     = grab windowPositionE
            , windowSizeE         = grab windowSizeE

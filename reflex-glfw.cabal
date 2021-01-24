@@ -4,10 +4,10 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: cc2b40c92cbe666685b8a2616f8401299d845145d322cd03848cefd2ae329af3
+-- hash: c6c46899521c8f2688dae39850e8835aec7e3a69720b4f1d494e05107fbf6768
 
 name:           reflex-glfw
-version:        0.1.0.0
+version:        0.1.1.0
 synopsis:       Reflex FRP host based on GLFW
 description:    Please see the README on GitHub at <https://github.com/burningwitness/reflex-glfw#readme>
 category:       FRP
@@ -15,7 +15,7 @@ homepage:       https://github.com/burningwitness/reflex-glfw#readme
 bug-reports:    https://github.com/burningwitness/reflex-glfw/issues
 author:         Oleksii Divak
 maintainer:     Oleksii Divak <frozenwitness@gmail.com>
-copyright:      (c) 2020, Oleksii Divak
+copyright:      (c) 2021, Oleksii Divak
 license:        BSD3
 license-file:   LICENSE
 build-type:     Simple
