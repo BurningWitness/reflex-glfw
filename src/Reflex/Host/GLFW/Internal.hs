@@ -5,6 +5,7 @@
 
 module Reflex.Host.GLFW.Internal where
 
+import           Control.Concurrent.STM.TChan
 import           Control.Monad.IO.Class
 import           Control.Monad.Ref
 import           Data.Dependent.Sum
@@ -51,6 +52,11 @@ data WindowE f t =
 
 -- | A wrapper around the \"fire\" command.
 newtype Fire t h a = Fire ([DSum (EventTrigger t) Identity] -> h a)
+
+
+
+-- | A wrapper around the host channel, analogous to one inside 'TriggerEventT'.
+newtype HostChan t = HostChan { unHostChan :: TChan [DSum (EventTriggerRef t) TriggerInvocation] }
 
 
 

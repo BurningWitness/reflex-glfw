@@ -13,7 +13,6 @@ import           Reflex.Host.GLFW as GLFW
 import           Control.Concurrent
 import           Control.Exception (bracket)
 import           Control.Monad.IO.Class
-import           Control.Monad.Fix
 import           Data.GADT.Compare.TH
 import           Data.Dependent.Map as DM
 import           Data.Functor.Identity
@@ -24,6 +23,8 @@ import           Reflex
 data Controls a where
   Spawn       :: Controls ()
   BrokenSpawn :: Controls ()
+  HostEvent   :: Controls ()
+  SecEvent    :: Controls ()
   MoveUp      :: Controls Window
   MoveDown    :: Controls Window
   MoveLeft    :: Controls Window
@@ -47,25 +48,23 @@ deriveGCompare ''Controls
 --     * Close itself and all other windows it previously spawned when you press @Q@;
 --
 --     * Do nothing when you press @B@
---       (it's a check for whether we can spawn the main window twice).
+--       (it's a check for whether we can spawn the main window twice);
+--
+--     * Print the thread calling the event and the host thread when pressing
+--       either @N@ (called from host thread) or @M@ (redirected onto trigger thread).
 network
   :: ( SpiderTimeline Global ~ t
      , SpiderHost Global ~ h
-     , MonadHold t m
-     , MonadIO m
-     , MonadIO (Performable m)
-     , MonadFix m
-     , PerformEvent t m
-     , Reflex t
-     , TriggerEvent t m
      )
   => Fire t h a
+  -> HostChan t
   -> GlobalE t
-  -> m (Event t ())
+  -> GLFWHost (Event t ())
+network fire hostChan GlobalE {..} = mdo
 
-network fire GlobalE {..} = mdo
+  liftIO $ putStrLn . ("\nHost thread: " <>) . show =<< myThreadId
 
-  (mainWindowD, mainWindowE) <-
+  (mainWindowE, _mainWindowB, mainWindowEv) <-
     createWindow
       fire
       ( CreateWindow (500, 500) "TestMain" Nothing Nothing <$ leftmost
@@ -75,11 +74,13 @@ network fire GlobalE {..} = mdo
       )
       $ () <$ mainCloseE
 
-  performEvent_ $ liftIO . print . ("Main window action: " <>) . show
-                    <$> updated mainWindowD
+  performEvent_ $ liftIO . putStrLn . ("Main window action: " <>) . show
+                    <$> mainWindowE
 
   let bindings (_, Key'Enter , _, KeyState'Pressed, _) = [Spawn       :=> Identity ()]
       bindings (_, Key'B     , _, KeyState'Pressed, _) = [BrokenSpawn :=> Identity ()]
+      bindings (_, Key'N     , _, KeyState'Pressed, _) = [HostEvent   :=> Identity ()]
+      bindings (_, Key'M     , _, KeyState'Pressed, _) = [SecEvent    :=> Identity ()]
       bindings (w, Key'Up    , _, KeyState'Pressed, _) = [MoveUp      :=> Identity w ]
       bindings (w, Key'Down  , _, KeyState'Pressed, _) = [MoveDown    :=> Identity w ]
       bindings (w, Key'Left  , _, KeyState'Pressed, _) = [MoveLeft    :=> Identity w ]
@@ -87,13 +88,15 @@ network fire GlobalE {..} = mdo
       bindings (w, Key'Q     , _, KeyState'Pressed, _) = [Close       :=> Identity w ]
       bindings _                                       = []
 
-      mainControls = fan . fmap DM.fromList $ bindings <$> keyE mainWindowE
+      mainControls = fan . fmap DM.fromList $ bindings <$> keyE mainWindowEv
 
       mainCloseE  = mainControls `select` Close
       mainSpawnE  = mainControls `select` Spawn
       mainBrokenE = mainControls `select` BrokenSpawn
+      hostEventE  = mainControls `select` HostEvent
+      secEventE   = mainControls `select` SecEvent
 
-  (auxWindowF, _auxWindowB, auxWindowE) <-
+  (auxWindowE, _auxWindowB, auxWindowEv) <-
     createWindows
       fire
       (CreateWindow (200, 200) "TestAux" Nothing Nothing <$ mainSpawnE)
@@ -102,10 +105,10 @@ network fire GlobalE {..} = mdo
           , Nothing <$ mainCloseE
           ]
 
-  performEvent_ $ liftIO . print . ("Auxiliary window action: " <>) . show
-                    <$> auxWindowF
+  performEvent_ $ liftIO . putStrLn . ("Auxiliary window action: " <>) . show
+                    <$> auxWindowE
 
-  let auxControls = fan . fmap DM.fromList $ foldMap bindings <$> keyE auxWindowE
+  let auxControls = fan . fmap DM.fromList $ foldMap bindings <$> keyE auxWindowEv
 
       auxCloseE = auxControls `select` Close
       auxUpE    = auxControls `select` MoveUp
@@ -128,6 +131,25 @@ network fire GlobalE {..} = mdo
   performEvent_ $ ( \w -> liftIO $ do (x, y) <- GLFW.getWindowPos w
                                       setWindowPos w (x + 5) y
                   ) <$> auxRightE
+
+  -- Multithreading check
+
+  (hopE, hopRef) <- newHostEvent hostChan
+
+  (redirE, redirRef) <- newTriggerEvent
+
+  performEvent_ $ liftIO (redirRef ()) <$ secEventE
+
+  performEvent_ $ liftIO (hopRef =<< myThreadId) <$ leftmost [ hostEventE, redirE ]
+
+  performEvent_ $ ( \thatThread -> liftIO $ do thisThread <- myThreadId
+                                               putStrLn $ mconcat
+                                                            [ "Calling from "
+                                                            , show thatThread
+                                                            , " into "
+                                                            , show thisThread
+                                                            ]
+                  ) <$> hopE
 
   return $ () <$ mainCloseE
 

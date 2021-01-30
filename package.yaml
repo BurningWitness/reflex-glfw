@@ -1,5 +1,5 @@
 name:                reflex-glfw
-version:             0.1.1.0
+version:             0.1.2.0
 github:              burningwitness/reflex-glfw
 license:             BSD3
 license-file:        LICENSE
@@ -22,6 +22,7 @@ dependencies:
 - GLFW-b >= 3.2 && < 4
 - reflex
 - ref-tf
+- stm
 
 ghc-options:
 - -Wall

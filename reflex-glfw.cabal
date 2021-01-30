@@ -4,10 +4,10 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: c6c46899521c8f2688dae39850e8835aec7e3a69720b4f1d494e05107fbf6768
+-- hash: ca577df0d11ac933c71414d413c49988db02299b6d9be7c72c3b26624c7edb89
 
 name:           reflex-glfw
-version:        0.1.1.0
+version:        0.1.2.0
 synopsis:       Reflex FRP host based on GLFW
 description:    Please see the README on GitHub at <https://github.com/burningwitness/reflex-glfw#readme>
 category:       FRP
@@ -43,6 +43,7 @@ library
     , dependent-sum
     , ref-tf
     , reflex
+    , stm
   default-language: Haskell2010
 
 test-suite reflex-glfw-test
@@ -63,5 +64,6 @@ test-suite reflex-glfw-test
     , ref-tf
     , reflex
     , reflex-glfw
+    , stm
     , witherable
   default-language: Haskell2010
