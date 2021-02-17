@@ -4,10 +4,10 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: ca577df0d11ac933c71414d413c49988db02299b6d9be7c72c3b26624c7edb89
+-- hash: a8d43f65bb1223cab8d6c57d9498f7a973b47f0d85713f1dd56788be051359d5
 
 name:           reflex-glfw
-version:        0.1.2.0
+version:        0.1.3.0
 synopsis:       Reflex FRP host based on GLFW
 description:    Please see the README on GitHub at <https://github.com/burningwitness/reflex-glfw#readme>
 category:       FRP
@@ -29,8 +29,12 @@ source-repository head
 library
   exposed-modules:
       Graphics.UI.GLFW.Reexport
+      Reflex.Channel
       Reflex.Host.GLFW
       Reflex.Host.GLFW.Internal
+      Reflex.Host.GLFW.Window
+      Reflex.Time.Framerate
+      Reflex.Time.Physics
   other-modules:
       Paths_reflex_glfw
   hs-source-dirs:
@@ -39,24 +43,57 @@ library
   build-depends:
       GLFW-b >=3.2 && <4
     , base >=4.9 && <4.14
+    , bifunctors
     , containers
+    , dependent-map
     , dependent-sum
+    , dependent-sum-template
     , ref-tf
     , reflex
     , stm
   default-language: Haskell2010
 
-test-suite reflex-glfw-test
+test-suite framerate-test
   type: exitcode-stdio-1.0
-  main-is: Spec.hs
+  main-is: Framerate.hs
   other-modules:
       Paths_reflex_glfw
   hs-source-dirs:
-      test
-  ghc-options: -Wall -threaded -rtsopts -with-rtsopts=-N -O2
+      test/framerate
+  ghc-options: -Wall -threaded -rtsopts -with-rtsopts=-N -O2 -main-is Framerate
   build-depends:
       GLFW-b >=3.2 && <4
+    , OpenGL
+    , ansi-terminal
     , base >=4.9 && <4.14
+    , bifunctors
+    , bytestring
+    , containers
+    , dependent-map
+    , dependent-sum
+    , dependent-sum-template
+    , ref-tf
+    , reflex
+    , reflex-glfw
+    , stm
+    , vector
+    , witherable
+  default-language: Haskell2010
+
+test-suite physics-test
+  type: exitcode-stdio-1.0
+  main-is: Physics.hs
+  other-modules:
+      Paths_reflex_glfw
+  hs-source-dirs:
+      test/physics
+  ghc-options: -Wall -threaded -rtsopts -with-rtsopts=-N -O2 -main-is Physics
+  build-depends:
+      GLFW-b >=3.2 && <4
+    , OpenGL
+    , ansi-terminal
+    , base >=4.9 && <4.14
+    , bifunctors
     , containers
     , dependent-map
     , dependent-sum

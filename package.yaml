@@ -1,5 +1,5 @@
 name:                reflex-glfw
-version:             0.1.2.0
+version:             0.1.3.0
 github:              burningwitness/reflex-glfw
 license:             BSD3
 license-file:        LICENSE
@@ -17,8 +17,11 @@ description:         Please see the README on GitHub at <https://github.com/burn
 
 dependencies:
 - base >= 4.9 && < 4.14
+- bifunctors
 - containers
+- dependent-map
 - dependent-sum
+- dependent-sum-template
 - GLFW-b >= 3.2 && < 4
 - reflex
 - ref-tf
@@ -31,16 +34,38 @@ library:
   source-dirs: src
 
 tests:
-  reflex-glfw-test:
-    main:                Spec.hs
-    source-dirs:         test
+  framerate-test:
+    main:                Framerate.hs
+    source-dirs:         test/framerate
     ghc-options:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
     - -O2
+    - -main-is Framerate
     dependencies:
+    - ansi-terminal
+    - bytestring
     - dependent-map
     - dependent-sum-template
+    - OpenGL
+    - reflex-glfw
+    - vector
+    - witherable
+
+  physics-test:
+    main:                Physics.hs
+    source-dirs:         test/physics
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -O2
+    - -main-is Physics
+    dependencies:
+    - ansi-terminal
+    - dependent-map
+    - dependent-sum-template
+    - OpenGL
     - reflex-glfw
     - witherable
