@@ -70,25 +70,26 @@ newChannel fork openCloseE = mdo
 
             unless isAlive $ do
 
-              void . fork . fix $ \loop ->
-                let action = do
-                      (eventList, isAlive2) <-
-                        atomically $
-                          (,) <$> do el <- readTQueue tchan
-                                     elRest <- fix $ \loop2 -> do
-                                                 mayRes <- tryReadTQueue tchan
-                                                 case mayRes of
-                                                   Just res -> (:) res <$> loop2
-                                                   Nothing  -> return []
-                                     return $ el : elRest
-                              <*> readTVar alive
+              void . fork $
+                let action =
+                      fix $ \loop -> do
+                        (eventList, isAlive2) <-
+                          atomically $
+                            (,) <$> do el <- readTQueue tchan
+                                       elRest <- fix $ \loop2 -> do
+                                                   mayRes <- tryReadTQueue tchan
+                                                   case mayRes of
+                                                     Just res -> (:) res <$> loop2
+                                                     Nothing  -> return []
+                                       return $ el : elRest
+                                <*> readTVar alive
 
-                      for_ eventList $ \events ->
-                        for_ events $ \(Flip outRef :=> io) ->
-                          io >>= outRef
+                        for_ eventList $ \events ->
+                          for_ events $ \(Flip outRef :=> io) ->
+                            io >>= outRef
 
-                      when isAlive2 $
-                        loop
+                        when isAlive2 $
+                          loop
 
                 in action `finally` closedRef ()
 
