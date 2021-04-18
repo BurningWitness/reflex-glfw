@@ -16,7 +16,7 @@ category:            FRP
 description:         Please see the README on GitHub at <https://github.com/burningwitness/reflex-glfw#readme>
 
 dependencies:
-- base >= 4.9 && < 4.14
+- base >= 4.9 && < 5
 - bifunctors
 - containers
 - dependent-map
