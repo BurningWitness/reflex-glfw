@@ -98,17 +98,17 @@ network hostChan GlobalE {..} = mdo
 
   configB <- hold Nothing configE
 
-  let frameAcc _      Nothing                       = S.empty
-      frameAcc frames (Just (PhysTick time _ step)) = 
-        (time, step)
-          :<| dropWhileR (\(before, _) -> before < time - 1) frames
+  let frameAcc _      Nothing     = S.empty
+      frameAcc frames (Just tick) =
+        (ptTime tick, step tick)
+          :<| dropWhileR (\(before, _) -> before < ptTime tick - 1) frames
 
   fpsB <- accumB frameAcc S.empty $ leftmost
                                       [ Nothing <$ offE
                                       , Just <$> loopbackE
                                       ]
 
-  tickE <- physrate configE $ () <$ loopbackE
+  tickE <- physrate configE $ ptId <$> loopbackE
 
   loopbackE <- performEventAsync $
                  ( \fps mayConfig tick callback ->
@@ -122,7 +122,7 @@ network hostChan GlobalE {..} = mdo
                                     , case mayConfig of
                                         Nothing          -> "X"
                                         Just (Physrate rate True) -> show rate <> " with skip"
-                                        Just (Physrate rate False) -> show rate <> " no skip "
+                                        Just (Physrate rate False) -> show rate <> " no skip"
                                     , " | "
                                     , show $ S.length fps
                                     , "fps, "

@@ -50,9 +50,9 @@ data Tick =
 
 tick :: Maybe Tick -> TickId -> IO Tick
 tick mayPrevious tickId = do
-  now <- getMonotonicTime
-  let delta = fmap (\prev -> now - tTime prev) mayPrevious
-  return $ Tick now delta tickId
+  tnow <- getMonotonicTime
+  let delta = fmap (\prev -> tnow - tTime prev) mayPrevious
+  return $ Tick tnow delta tickId
 
 
 

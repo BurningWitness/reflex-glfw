@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -6,6 +7,7 @@
 
 module Reflex.Time.Physics
   ( PhysTick (..)
+  , step
   , Physrate (..)
   , physrate
   ) where
@@ -14,11 +16,15 @@ import           Control.Concurrent
 import           Control.Monad
 import           Control.Monad.Fix
 import           Control.Monad.IO.Class
+import           Data.Function
 import           Data.Maybe
 import           GHC.Clock
 import           Reflex hiding (delay)
 
 
+
+newtype TickId = TickId Int
+                 deriving (Show, Eq, Num)
 
 data PhysTick =
        PhysTick
@@ -26,10 +32,16 @@ data PhysTick =
          , ptAnchor :: Double -- ^ Internal reference time. Technically this is the
                               --   time of the first tick, plus all the steps up to
                               --   this point excluding this tick.
-         , ptStep   :: Double -- ^ Step to advance physics by.
+         , ptRate   :: Double -- ^ Current physics engine framerate in frames.
+         , ptFrames :: Int    -- ^ Number of frames that happened in between this and the last tick.
+                              -- ^ Is guaranteed to be at least 1.
+         , ptId     :: TickId -- ^ Tick identifier. Same reasoning as in "Reflex.Time.Framerate".
          }
        deriving Show
 
+-- | Step the physics engine should take when processing this tick.
+step :: PhysTick -> Double
+step (PhysTick _ _ rate frames _) = (1 / rate) * fromIntegral frames
 
 
 data Physrate =
@@ -45,27 +57,27 @@ data Physrate =
 
 
 
-phystick :: Maybe PhysTick -> Physrate -> IO PhysTick
-phystick mayPrev (Physrate rate hasFrameSkip) = do
-  now <- getMonotonicTime
+phystick :: Maybe PhysTick -> Physrate -> TickId -> IO PhysTick
+phystick mayPrev (Physrate rate hasFrameSkip) tid = do
+  tnow <- getMonotonicTime
   return $
     case mayPrev of
-      Nothing                          -> PhysTick now now rate
-      Just (PhysTick _ anchor _) ->
-        let inverse = 1 / rate
-            new                          -- @n@ is guaranteed to be (>= 1) because the anchor
-              | hasFrameSkip             -- always lags behind one frame, (max 1) is for safety
-              , now - anchor > inverse = let n = max 1 . floor $ rate * (now - anchor) :: Int
-                                         in fromIntegral n / rate
-              | otherwise              = inverse
-        in PhysTick now (anchor + new) new
+      Nothing                        -> PhysTick tnow tnow rate 1 tid
+      Just (PhysTick _ anchor _ _ _) ->
+        let num
+              | hasFrameSkip, tnow - anchor > 1 / rate = floor $ rate * (tnow - anchor)
+              | otherwise                              = 1
+
+            res = PhysTick tnow (anchor + step res) rate num tid
+
+        in res
 
 
 
 -- | @'physrate' configE loopbackE@ fires an 'Event' depending on provided @configE@.
 --   The output 'Event' is supposed to feed into the function that calculates physics
 --   steps, advancing the world by 'ptStep' and returning @loopbackE@.
---   
+--
 --   For @configE@ 'Nothing' represents the output 'Event' never firing and is
 --   its default state.
 physrate
@@ -78,13 +90,15 @@ physrate
      , PerformEvent t m
      )
   => Event t (Maybe Physrate) -- ^ Configuration
-  -> Event t ()               -- ^ Loopback
+  -> Event t TickId           -- ^ Loopback
   -> m (Event t PhysTick)
-physrate configE (loopbackE :: Event t ()) = mdo
-  
+physrate configE loopbackE = mdo
+
   configB <- hold Nothing configE
 
   let isActiveB = isJust <$> configB
+
+  idB <- accumB (\a _ -> a + 1) 0 . ffilter id $ ((/=) `on` isNothing) <$> configB <@> configE
 
   resultB <- hold never $ ( \mayRate -> case mayRate of
                                           Nothing -> never
@@ -97,31 +111,35 @@ physrate configE (loopbackE :: Event t ()) = mdo
                             ]
 
   tickE <- performEventAsync
-             $ ( \mayPrev mayRate callback -> do
-                    case (mayPrev, mayRate) of
-                      (_, Nothing)         -> return ()
-                      (Nothing, Just rate) ->
-                        liftIO $ do
-                          new <- phystick Nothing rate
-                          callback new
-                      (Just prev, Just rate) ->
-                        liftIO $ do
-                          time <- getMonotonicTime
-                          -- new time - (previous time + expected delta)
-                          -- Flipped signwise to represent the amount of time left until expected time
-                          let expected = 1e6 * (1 / pRate rate + ptAnchor prev - time)
-                          if expected > 0
-                            then
-                              void . forkIO $ do
-                                threadDelay $ truncate expected
-                                new <- phystick mayPrev rate
+             $ ( \mayPrev tid' (isFresh, mayRate) callback ->
+                   let tid | isFresh = tid' + 1
+                           | otherwise = tid'
+                   in case (mayPrev, mayRate) of
+                        (_, Nothing)         -> return ()
+                        (Nothing, Just rate) ->
+                          liftIO $ do
+                            new <- phystick Nothing rate tid
+                            callback new
+                        (Just prev, Just rate) ->
+                          liftIO $ do
+                            time <- getMonotonicTime
+                            -- new time - (previous time + expected delta)
+                            -- Flipped signwise to represent the amount of time left until expected time
+                            let expected = 1e6 * (1 / pRate rate + ptAnchor prev - time)
+                            if expected > 0
+                              then
+                                void . forkIO $ do
+                                  threadDelay $ truncate expected
+                                  new <- phystick mayPrev rate tid
+                                  callback new
+                              else do
+                                new <- phystick mayPrev rate tid
                                 callback new
-                            else do
-                              new <- phystick mayPrev rate
-                              callback new
-               ) <$> timeB <@> leftmost
-                                 [ configB <@ gate isActiveB loopbackE
-                                 , gate (not <$> isActiveB) $ ffilter isJust configE
-                                 ]
+               ) <$> timeB
+                 <*> idB
+                 <@> leftmost
+                       [ (,) False <$> do configB <@ gate isActiveB (ffilter id $ (==) <$> idB <@> loopbackE)
+                       , (,) True  <$> do gate (not <$> isActiveB) $ ffilter isJust configE
+                       ]
 
   return $ switch resultB
