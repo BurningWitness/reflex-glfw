@@ -278,6 +278,11 @@ network hostChan GlobalE {..} = mdo
                                   , restoreCursorCode
                                   ]
                        hFlush stdout
+
+                       -- glFinish before swapping buffers is mandatory for VSync to work properly.
+                       -- If the implementation does not block on swap, the next draw will block instead,
+                       -- yielding a one frame lag.
+                       finish
                        mapM_ swapBuffers mayWindow
 
                        return $ tId tick
@@ -289,7 +294,6 @@ network hostChan GlobalE {..} = mdo
   performEvent_ $ liftIO . shutdownRef <$> do () <$ ffilter not drawChanE
 
   return shutdownE
-
 
 
 
