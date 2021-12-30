@@ -10,6 +10,7 @@ module Reflex.Time.Framerate
   ( Tick (..)
   , Framerate (..)
   , framerate
+  , FrameId
   ) where
 
 import           Reflex.Channel
@@ -33,14 +34,14 @@ import           Reflex.Host.Class
 
 
 
-newtype TickId = TickId Int
-                 deriving (Show, Eq, Num)
+newtype FrameId = FrameId Int
+                  deriving (Show, Eq, Num)
 
 data Tick =
        Tick
          { tTime   :: Double       -- ^ Time when the tick was emitted.
          , tDelta  :: Maybe Double -- ^ Difference between new and previous 'tTime'.
-         , tId     :: TickId       -- ^ Tick identifier. This is simply the number of
+         , tId     :: FrameId      -- ^ Tick identifier. This is simply the number of
                                    --   meaningful mode flips and it's used to discard old
                                    --   loopbackE occurrences after a switch.
          }
@@ -48,7 +49,7 @@ data Tick =
 
 
 
-tick :: Maybe Tick -> TickId -> IO Tick
+tick :: Maybe Tick -> FrameId -> IO Tick
 tick mayPrevious tickId = do
   tnow <- getMonotonicTime
   let delta = fmap (\prev -> tnow - tTime prev) mayPrevious
@@ -104,7 +105,7 @@ framerate
   => Event t (Maybe Framerate) -- ^ Configuration
   -> Channel                   -- ^ Drawing thread (for changing 'swapInterval')
   -> Event t ()                -- ^ Asynchronous inputs
-  -> Event t TickId            -- ^ Loopback
+  -> Event t FrameId           -- ^ Loopback
   -> m (Event t Tick)
 framerate configE drawChan asyncE loopbackE = mdo
   

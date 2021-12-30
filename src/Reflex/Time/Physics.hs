@@ -10,6 +10,7 @@ module Reflex.Time.Physics
   , step
   , Physrate (..)
   , physrate
+  , PhysId
   ) where
 
 import           Control.Concurrent
@@ -23,7 +24,7 @@ import           Reflex hiding (delay)
 
 
 
-newtype TickId = TickId Int
+newtype PhysId = PhysId Int
                  deriving (Show, Eq, Num)
 
 data PhysTick =
@@ -35,7 +36,7 @@ data PhysTick =
          , ptRate   :: Double -- ^ Current physics engine framerate in frames.
          , ptFrames :: Int    -- ^ Number of frames that happened in between this and the last tick.
                               -- ^ Is guaranteed to be at least 1.
-         , ptId     :: TickId -- ^ Tick identifier. Same reasoning as in "Reflex.Time.Framerate".
+         , ptId     :: PhysId -- ^ Tick identifier. Same reasoning as in "Reflex.Time.Framerate".
          }
        deriving Show
 
@@ -53,11 +54,11 @@ data Physrate =
                                 --   be some multiple of 'pRate'). If 'False', the
                                 --   ticks will always advance by 'pRate'.
          }
-       deriving Show
+       deriving (Show, Eq)
 
 
 
-phystick :: Maybe PhysTick -> Physrate -> TickId -> IO PhysTick
+phystick :: Maybe PhysTick -> Physrate -> PhysId -> IO PhysTick
 phystick mayPrev (Physrate rate hasFrameSkip) tid = do
   tnow <- getMonotonicTime
   return $
@@ -90,7 +91,7 @@ physrate
      , PerformEvent t m
      )
   => Event t (Maybe Physrate) -- ^ Configuration
-  -> Event t TickId           -- ^ Loopback
+  -> Event t PhysId           -- ^ Loopback
   -> m (Event t PhysTick)
 physrate configE loopbackE = mdo
 
