@@ -19,7 +19,6 @@ import           Reflex.Host.GLFW.Internal (Channel (..), HostChannel (..))
 
 import           Control.Concurrent
 import           Control.Concurrent.STM
-import           Control.Exception
 import           Control.Monad
 import           Control.Monad.Fix
 import           Control.Monad.IO.Class
@@ -34,82 +33,64 @@ import           Reflex.Host.Class
 
 
 newChannel
-  :: ( SpiderTimeline Global ~ t
-     , SpiderHost Global ~ h
-     , Monad (Performable m)
-     , MonadFix m
-     , MonadIO m
+  :: ( MonadIO m
      , MonadIO (Performable m)
-     , MonadHold t m
-     , MonadSubscribeEvent t (Performable m)
-     , TriggerEvent t m
      , PerformEvent t m
+     , ReflexHost t
+     , TriggerEvent t m
      )
   => (IO () -> IO ThreadId)
   -> Event t Bool
   -> m (Channel, Event t Bool)
 newChannel fork openCloseE = mdo
-  
-  (tchan, alive) <- liftIO $ (,) <$> newTQueueIO
-                                 <*> newTVarIO False
+
+  (tchan, alive) <- liftIO . atomically $ (,) <$> newTQueue
+                                              <*> newTMVar False
 
   let openE  = ffilter id openCloseE
       closeE = ffilter not openCloseE
 
-  (closedE, closedRef) <- newTriggerEvent
-
-  createdE <-
+  doneE <-
     performEventAsync $
       ( \callback ->
           liftIO $ do
-            isAlive <- atomically $ do
-                         isAlive <- readTVar alive
-                         when (not isAlive) $
-                           writeTVar alive True
-                         return isAlive
+            isAlive <- atomically $ swapTMVar alive True
 
             unless isAlive $ do
-
               void . fork $
-                let action =
-                      fix $ \loop -> do
-                        (eventList, isAlive2) <-
-                          atomically $
-                            (,) <$> do el <- readTQueue tchan
-                                       elRest <- fix $ \loop2 -> do
-                                                   mayRes <- tryReadTQueue tchan
-                                                   case mayRes of
-                                                     Just res -> (:) res <$> loop2
-                                                     Nothing  -> return []
-                                       return $ el : elRest
-                                <*> readTVar alive
+                fix $ \loop -> do
 
-                        for_ eventList $ \events ->
-                          for_ events $ \(Flip outRef :=> io) ->
-                            io >>= outRef
+                 eventList <- atomically $ do
+                                el <- readTQueue tchan
+                                elRest <- fix $ \loop2 -> do
+                                            mayRes <- tryReadTQueue tchan
+                                            case mayRes of
+                                              Just res -> (:) res <$> loop2
+                                              Nothing  -> return []
+                                return $ el : elRest
 
-                        when isAlive2 $
-                          loop
+                 for_ eventList $ \events ->
+                   for_ events $ \(Flip outRef :=> io) ->
+                     io >>= outRef
 
-                in action `finally` closedRef ()
+                 stillAlive <- atomically $ takeTMVar alive
 
-              callback ()
+                 if stillAlive
+                   then do
+                     atomically $ putTMVar alive True
+                     loop
+                   else do
+                     callback False
+                     atomically $ putTMVar alive False
+
+              callback True
       ) <$ openE
 
-  performEvent_ $ ( liftIO .
-                      atomically $ do isAlive <- readTVar alive
-                                      when isAlive $ do
-                                        writeTVar alive False
-                                        writeTQueue tchan []
-                  ) <$ closeE
+  let channel = Channel tchan alive
 
-  return
-    ( Channel tchan alive
-    , leftmost
-        [ True  <$ createdE
-        , False <$ closedE
-        ]
-    )
+  performEventOn_ channel $ atomically (() <$ swapTMVar alive False) <$ closeE
+
+  return (channel, doneE)
 
 
 
@@ -122,16 +103,11 @@ newChannel fork openCloseE = mdo
 --   the thread. It is handled by the trigger thread and will properly
 --   fire a @False@ if an exception is raised in the thread.
 newBoundChannel
-  :: ( SpiderTimeline Global ~ t
-     , SpiderHost Global ~ h
-     , Monad (Performable m)
-     , MonadFix m
-     , MonadIO m
+  :: ( MonadIO m
      , MonadIO (Performable m)
-     , MonadHold t m
-     , MonadSubscribeEvent t (Performable m)
-     , TriggerEvent t m
      , PerformEvent t m
+     , ReflexHost t
+     , TriggerEvent t m
      )
   => Event t Bool
   -> m (Channel, Event t Bool)
@@ -143,16 +119,11 @@ newBoundChannel = newChannel forkOS
 --
 --   No real benefit over just using 'forkIO' on the trigger thread.
 newUnboundChannel
-  :: ( SpiderTimeline Global ~ t
-     , SpiderHost Global ~ h
-     , Monad (Performable m)
-     , MonadFix m
-     , MonadIO m
+  :: ( MonadIO m
      , MonadIO (Performable m)
-     , MonadHold t m
-     , MonadSubscribeEvent t (Performable m)
-     , TriggerEvent t m
      , PerformEvent t m
+     , ReflexHost t
+     , TriggerEvent t m
      )
   => Event t Bool
   -> m (Channel, Event t Bool)
@@ -181,7 +152,7 @@ instance ( MonadIO (Performable m)
 
     performEvent_ $ ( \io -> liftIO .
                                atomically $ do
-                                 isAlive <- readTVar alive
+                                 isAlive <- readTMVar alive
                                  when isAlive $
                                    writeTQueue tchan [Flip outRef :=> io]
                     ) <$> ioE
@@ -191,7 +162,7 @@ instance ( MonadIO (Performable m)
   performEventOn_ (Channel tchan alive) ioE =
     performEvent_ $ ( \io -> liftIO .
                                atomically $ do
-                                 isAlive <- readTVar alive
+                                 isAlive <- readTMVar alive
                                  when isAlive $
                                    writeTQueue tchan [Flip (const $ return ()) :=> io]
                     ) <$> ioE

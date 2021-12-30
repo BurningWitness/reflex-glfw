@@ -19,7 +19,6 @@ import           Control.Concurrent
 import           Control.Monad
 import           Control.Monad.Fix
 import           Control.Monad.IO.Class
-import           Control.Monad.Ref
 import           Data.Dependent.Map as DM
 import           Data.Dependent.Sum
 import           Data.Functor
@@ -89,17 +88,12 @@ deriveGCompare ''FramerateEvent
 --   than once per buffer swap and firing additionally once more if @asyncE@ fired
 --   after the last tick, but before @loopbackE@ returned.
 framerate
-  :: ( SpiderTimeline Global ~ t
-     , SpiderHost Global ~ h
-     , MonadReflexCreateTrigger t m
-     , MonadSubscribeEvent t (Performable m)
+  :: ( MonadHold t m
      , MonadFix m
-     , MonadHold t m
-     , MonadIO (Performable m)
      , MonadIO m
-     , MonadRef m
+     , MonadIO (Performable m)
      , PerformEvent t m
-     , Ref m ~ Ref IO
+     , ReflexHost t
      , TriggerEvent t m
      )
   => Event t (Maybe Framerate) -- ^ Configuration

@@ -22,7 +22,7 @@ import           Reflex.Host.Class
 data Channel =
        Channel            -- [Flip (a -> IO ()) :=> IO a]
          { cQueue :: TQueue [DSum (Flip (->) (IO ())) IO]
-         , cAlive :: TVar Bool
+         , cAlive :: TMVar Bool
          }
 
 

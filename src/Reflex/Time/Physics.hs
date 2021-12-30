@@ -82,9 +82,7 @@ phystick mayPrev (Physrate rate hasFrameSkip) tid = do
 --   For @configE@ 'Nothing' represents the output 'Event' never firing and is
 --   its default state.
 physrate
-  :: ( SpiderTimeline Global ~ t
-     , SpiderHost Global ~ h
-     , MonadHold t m
+  :: ( MonadHold t m
      , MonadFix m
      , MonadIO (Performable m)
      , TriggerEvent t m

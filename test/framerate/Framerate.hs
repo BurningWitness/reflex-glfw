@@ -140,7 +140,7 @@ network hostChan GlobalE {..} = mdo
       hostChan
       ( CreateWindow (500, 500) "TestMain" Nothing Nothing <$ postBuildE
       )
-      $ closeE
+      $ shutdownE
 
   let bindings (_, Key'O          , _, KeyState'Pressed, _   ) = pure $ GoOff ==> ()
       bindings (_, Key'U          , _, KeyState'Pressed, _   ) = pure $ GoUnlimited ==> ()
@@ -289,9 +289,7 @@ network hostChan GlobalE {..} = mdo
                    ) <$> windowB <*> cursorPosB <*> windowSizeB <*> fpsB <@> frameE
 
   -- Crash prevention. We wait for the draw channel to finish before exiting.
-  (shutdownE, shutdownRef) <- newTriggerEvent
-
-  performEvent_ $ liftIO . shutdownRef <$> do () <$ ffilter not drawChanE
+  shutdownE <- performEvent $ liftIO (return ()) <$ ffilter not drawChanE
 
   return shutdownE
 
