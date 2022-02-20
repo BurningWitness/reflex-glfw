@@ -21,6 +21,7 @@ module Reflex.Host.GLFW
   , CreateWindow (..)
   , WindowAction (..)
   , Reflex.Host.GLFW.createWindow
+  , contextWindow
     -- ** Overloading window callbacks
   , module Reflex.Host.GLFW.Window
     -- * Re-exports
@@ -93,6 +94,43 @@ createWindow
               , WindowE Def t
               )
 createWindow = createWindow' Proxy
+
+
+
+-- | Similar to 'createWindow', but creates an invisible window and doesn't bind any callbacks.
+--   This exists solely to define shared offscreen contexts.
+--
+--   Internally uses 'GLFW.WindowHint'Visible', setting it to 'True' after every window creation.
+contextWindow
+  :: SpiderTimeline Global ~ t
+  => HostChannel
+  -> Event t CreateWindow
+  -> Event t ()
+  -> GLFWHost (Event t WindowAction, Behavior t (Maybe Window))
+contextWindow hostChan bearE killE = mdo
+  createdE <- performEventOn hostChan $ ( \(CreateWindow (w, h) name moni con) -> do
+                                            windowHint $ WindowHint'Visible False
+                                            mayInvis <- GLFW.createWindow w h name moni con
+                                            windowHint $ WindowHint'Visible True
+                                            return mayInvis
+                                        ) <$> bearE
+
+  mayWindowB <- hold Nothing $ leftmost
+                                 [ createdE
+                                 , Nothing <$ destroyedE
+                                 ]
+
+  destroyedE <- performEventOn hostChan $ ( \win -> do GLFW.destroyWindow win
+                                                       return $ DestroyedWindow win
+                                          ) <$> do tagMaybe mayWindowB killE
+
+  return ( leftmost [ flip fmap createdE $ \mayWindow -> case mayWindow of
+                                                           Just win -> CreatedWindow win
+                                                           Nothing  -> CouldNotCreateWindow
+                    , destroyedE
+                    ]
+         , mayWindowB
+         )
 
 
 

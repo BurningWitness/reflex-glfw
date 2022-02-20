@@ -4,10 +4,10 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 8d590b1b9842e37c5ebeec170aa9b13e8002c9a72f9db10d35114648d02d8df6
+-- hash: cf9ecbb0181eb02767a0ee2c8e0595ba49af84498d1faa1a41d0ff1671af5c5a
 
 name:           reflex-glfw
-version:        0.1.4.0
+version:        0.1.5.0
 synopsis:       Reflex FRP host based on GLFW
 description:    Please see the README on GitHub at <https://github.com/burningwitness/reflex-glfw#readme>
 category:       FRP
@@ -53,7 +53,30 @@ library
     , stm
   default-language: Haskell2010
 
-test-suite framerate-test
+test-suite context
+  type: exitcode-stdio-1.0
+  main-is: Context.hs
+  other-modules:
+      Paths_reflex_glfw
+  hs-source-dirs:
+      test/context
+  ghc-options: -Wall -threaded -rtsopts -with-rtsopts=-N -O2 -main-is Context
+  build-depends:
+      GLFW-b >=3.2 && <4
+    , base >=4.9 && <5
+    , bifunctors
+    , containers
+    , dependent-map
+    , dependent-sum
+    , dependent-sum-template
+    , gl
+    , ref-tf
+    , reflex
+    , reflex-glfw
+    , stm
+  default-language: Haskell2010
+
+test-suite framerate
   type: exitcode-stdio-1.0
   main-is: Framerate.hs
   other-modules:
@@ -80,7 +103,7 @@ test-suite framerate-test
     , witherable
   default-language: Haskell2010
 
-test-suite physics-test
+test-suite physics
   type: exitcode-stdio-1.0
   main-is: Physics.hs
   other-modules:
