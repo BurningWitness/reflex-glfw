@@ -135,12 +135,14 @@ network
   -> GLFWHost (Event t ())
 network hostChan GlobalE {..} = mdo
 
-  (windowE, windowB, WindowE {..}) <-
+  (windowFan, windowB, WindowE {..}) <-
     createWindow
       hostChan
       ( CreateWindow (500, 500) "TestMain" Nothing Nothing <$ postBuildE
       )
       $ shutdownE
+
+  let createdWindowE = select windowFan CreatedWindow
 
   let bindings (_, Key'O          , _, KeyState'Pressed, _   ) = pure $ GoOff ==> ()
       bindings (_, Key'U          , _, KeyState'Pressed, _   ) = pure $ GoUnlimited ==> ()
@@ -203,12 +205,7 @@ network hostChan GlobalE {..} = mdo
                   ( \window -> do
                       makeContextCurrent $ Just window
                       initGL
-                  ) <$> flip fmapMaybe windowE
-                          ( \winAction -> case winAction of
-                                            CouldNotCreateWindow -> Nothing
-                                            CreatedWindow w      -> Just w
-                                            DestroyedWindow _    -> Nothing
-                          )
+                  ) <$> createdWindowE
 
   screenLocB <- hold Nothing $ Just <$> screenLocE
 

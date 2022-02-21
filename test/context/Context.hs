@@ -4,7 +4,6 @@
 
 module Context where
 
-import           Control.Concurrent
 import           Control.Exception
 import           Graphics.GL
 import qualified Graphics.UI.GLFW as GLFW
@@ -24,40 +23,40 @@ network
   -> GlobalE t
   -> GLFWHost (Event t ())
 network hostChan GlobalE {..} = mdo
-  (mainE, mainB, WindowE {..}) <-
+  (mainFan, mainB, _windowE) <-
     createWindow
       hostChan
       ( CreateWindow (500, 500) "TestMain" Nothing Nothing <$ postBuildE )
-      cascadeE1
+      cascade1E
 
-  let (newMainE, cascadeE0) = fanEither . flip fmap mainE $ \main ->
-                                                 case main of
-                                                   CreatedWindow w -> Left w
-                                                   _               -> Right ()
+  let newMainE  = select mainFan CreatedWindow
+      cascade0E = leftmost [ () <$ select mainFan DestroyedWindow
+                           , select mainFan CouldNotCreateWindow
+                           ]
 
-  (auxE, auxB) <-
+  (auxFan, _auxB) <-
     contextWindow
       hostChan
       ( CreateWindow (32, 32) "Context window" Nothing . Just <$> newMainE )
-      cascadeE2
+      cascade2E
 
-  let (newAuxE, cascadeE1) = fanEither . flip fmap auxE $ \aux ->
-                                                case aux of
-                                                  CreatedWindow w -> Left w
-                                                  _               -> Right ()
+  let newAuxE   = select auxFan CreatedWindow
+      cascade1E = leftmost [ () <$ select auxFan DestroyedWindow
+                           , select auxFan CouldNotCreateWindow
+                           ]
 
   (drawChan, drawChanE) <- newBoundChannel $ leftmost
                                                [ True <$ postBuildE
-                                               , False <$ cascadeE3
+                                               , False <$ cascade3E
                                                ]
 
   (contextChan, contextChanE) <- newBoundChannel $ leftmost
                                                      [ True <$ postBuildE
-                                                     , False <$ cascadeE4
+                                                     , False <$ cascade4E
                                                      ]
 
-  let cascadeE3 = () <$ ffilter not contextChanE
-      cascadeE2 = () <$ ffilter not drawChanE
+  let cascade3E = () <$ ffilter not contextChanE
+      cascade2E = () <$ ffilter not drawChanE
 
   postDrawE <- performEventOn drawChan . flip fmap newAuxE $ \w -> do
                                            makeContextCurrent $ Just w
@@ -69,7 +68,7 @@ network hostChan GlobalE {..} = mdo
                                            print (w, tex)
                                            return tex
 
-  cascadeE4 <- performEventOn contextChan $ let f (Just w) tex = do
+  cascade4E <- performEventOn contextChan $ let f (Just w) tex = do
                                                   makeContextCurrent $ Just w
                                                   glBindTexture GL_TEXTURE_2D tex
                                                   res <- alloca $ \ptr -> do
@@ -79,7 +78,7 @@ network hostChan GlobalE {..} = mdo
                                                 f Nothing  _   = print "No main window?"
                                             in f <$> mainB <@> postDrawE
 
-  return cascadeE0
+  return cascade0E
 
 
 

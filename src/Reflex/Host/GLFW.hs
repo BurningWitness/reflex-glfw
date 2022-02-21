@@ -48,7 +48,9 @@ import           Control.Monad.IO.Class
 import           Control.Monad.Ref
 import           Data.Bifunctor.Flip
 import           Data.Dependent.Sum
+import           Data.Dependent.Map as DMap
 import           Data.Foldable
+import           Data.Functor.Identity
 import           Data.Maybe
 import           Data.Proxy
 import           Data.Traversable
@@ -89,7 +91,7 @@ createWindow
   => HostChannel
   -> Event t CreateWindow         -- ^ Window creation event
   -> Event t ()                   -- ^ Window destruction event
-  -> GLFWHost ( Event t WindowAction
+  -> GLFWHost ( EventSelector t WindowAction
               , Behavior t (Maybe Window)
               , WindowE Def t
               )
@@ -106,7 +108,7 @@ contextWindow
   => HostChannel
   -> Event t CreateWindow
   -> Event t ()
-  -> GLFWHost (Event t WindowAction, Behavior t (Maybe Window))
+  -> GLFWHost (EventSelector t WindowAction, Behavior t (Maybe Window))
 contextWindow hostChan bearE killE = mdo
   createdE <- performEventOn hostChan $ ( \(CreateWindow (w, h) name moni con) -> do
                                             windowHint $ WindowHint'Visible False
@@ -121,14 +123,15 @@ contextWindow hostChan bearE killE = mdo
                                  ]
 
   destroyedE <- performEventOn hostChan $ ( \win -> do GLFW.destroyWindow win
-                                                       return $ DestroyedWindow win
+                                                       return win
                                           ) <$> do tagMaybe mayWindowB killE
 
-  return ( leftmost [ flip fmap createdE $ \mayWindow -> case mayWindow of
-                                                           Just win -> CreatedWindow win
-                                                           Nothing  -> CouldNotCreateWindow
-                    , destroyedE
-                    ]
+  return ( fan . mergeWith (<>) $ [ flip fmap createdE $ \mayWindow ->
+                                                case mayWindow of
+                                                  Just win -> DMap.singleton CreatedWindow $ Identity win
+                                                  Nothing  -> DMap.singleton CouldNotCreateWindow mempty
+                                  , DMap.singleton DestroyedWindow . Identity <$> destroyedE
+                                  ]
          , mayWindowB
          )
 

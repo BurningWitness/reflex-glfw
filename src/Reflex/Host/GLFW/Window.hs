@@ -1,9 +1,12 @@
-{-# LANGUAGE CPP #-}
-{-# LANGUAGE DefaultSignatures #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE RecursiveDo #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE CPP
+           , DataKinds
+           , DefaultSignatures
+           , GADTs
+           , PolyKinds
+           , RecordWildCards
+           , RecursiveDo
+           , ScopedTypeVariables
+           , TypeFamilies #-}
 
 module Reflex.Host.GLFW.Window
   ( WindowE (..)
@@ -20,9 +23,13 @@ import           Reflex.Host.GLFW.Internal
 import           Control.Concurrent.Chan
 import           Control.Monad.IO.Class
 import           Data.Dependent.Sum
+import           Data.Dependent.Map as DMap
+import           Data.Functor.Identity
+import           Data.GADT.Compare
 import           Data.Maybe
 import           Data.Proxy
 import           Data.Traversable
+import           Data.Typeable
 import           Graphics.UI.GLFW as GLFW
 import           Reflex
 import           Reflex.Host.Class
@@ -211,12 +218,28 @@ instance Conversion Def where
 data CreateWindow = CreateWindow (Int, Int) String (Maybe Monitor) (Maybe Window)
 
 
-
 -- | Types of window events.
-data WindowAction = CouldNotCreateWindow
-                  | CreatedWindow Window
-                  | DestroyedWindow Window
-                    deriving Show
+data WindowAction (state :: *) where
+  CouldNotCreateWindow :: WindowAction ()
+  CreatedWindow        :: WindowAction Window
+  DestroyedWindow      :: WindowAction Window
+
+instance GEq WindowAction where
+  geq CouldNotCreateWindow CouldNotCreateWindow = Just Refl
+  geq CreatedWindow        CreatedWindow        = Just Refl
+  geq DestroyedWindow      DestroyedWindow      = Just Refl
+  geq _                    _                    = Nothing
+
+instance GCompare WindowAction where
+  gcompare CouldNotCreateWindow CouldNotCreateWindow = GEQ
+  gcompare CouldNotCreateWindow _                    = GGT
+  gcompare _                    CouldNotCreateWindow = GGT
+
+  gcompare CreatedWindow        CreatedWindow        = GEQ
+  gcompare CreatedWindow        _                    = GLT
+  gcompare _                    CreatedWindow        = GLT
+
+  gcompare DestroyedWindow      DestroyedWindow      = GEQ
 
 
 
@@ -297,7 +320,7 @@ createWindow'
   -> HostChannel
   -> Event t CreateWindow         -- ^ Window creation event
   -> Event t ()                   -- ^ Window destruction event
-  -> GLFWHost ( Event t WindowAction
+  -> GLFWHost ( EventSelector t WindowAction
               , Behavior t (Maybe Window)
               , WindowE c t
               )
@@ -324,14 +347,12 @@ createWindow' (conv :: Proxy c) hostChan (bearE :: Event t CreateWindow) killE =
       callbacksB = fmap snd <$> windowBE
 
   return
-    ( leftmost
-        [ ( \mayWindow ->
-              case mayWindow of
-                Nothing     -> CouldNotCreateWindow
-                Just (w, _) -> CreatedWindow w
-          ) <$> createdE
-        , DestroyedWindow <$> destroyedE
-        ]
+    ( fan $ mergeWith (<>) [ flip fmap createdE $ \mayWin ->
+                                    case mayWin of
+                                      Nothing       -> DMap.singleton CouldNotCreateWindow mempty
+                                      Just (win, _) -> DMap.singleton CreatedWindow $ Identity win
+                           , DMap.singleton DestroyedWindow . Identity <$> destroyedE
+                           ]
     , windowB
     , let grab :: (WindowE c t -> Event t a) -> Event t a
           grab f = switch $ fromMaybe never . fmap f <$> callbacksB
