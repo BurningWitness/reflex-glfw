@@ -14,7 +14,7 @@ import           Control.Monad
 import           Control.Monad.IO.Class
 import           Data.Functor
 import           Data.GADT.Compare.TH
-import           Data.Dependent.Map as DM
+import           Data.Dependent.Map as DMap
 import           Data.Dependent.Sum
 import           Data.Sequence as S
 import           Reflex
@@ -57,14 +57,19 @@ network
   -> GLFWHost (Event t ())
 network hostChan GlobalE {..} = mdo
 
-  (_windowE, _windowB, WindowE {..}) <-
-    createWindow
-      hostChan
-      ( CreateWindow (500, 500) "TestMain" Nothing Nothing <$ postBuildE
-      )
-      $ closeE
+  (windowFan, _windowB, WindowE {..}) <-
+    createWindow hostChan $
+      fan $ mergeWith (<>)
+              [ postBuildE $> DMap.singleton Create  (pure $ CreateWindow (500, 500) "TestMain" Nothing Nothing)
+              , closeE     $> DMap.singleton Destroy mempty
+              ]
 
-  let bindings (_, Key'I          , _, KeyState'Pressed, _   ) = pure $ On         ==> ()
+  let shutdownE = leftmost
+                    [ select windowFan Destroyed
+                    , select windowFan Failed
+                    ]
+
+      bindings (_, Key'I          , _, KeyState'Pressed, _   ) = pure $ On         ==> ()
       bindings (_, Key'O          , _, KeyState'Pressed, _   ) = pure $ Off        ==> ()
       bindings (_, Key'PadAdd     , _, KeyState'Pressed, _   ) = pure $ Faster     ==> ()
       bindings (_, Key'Equal      , _, KeyState'Pressed, mods) = guard (modifierKeysShift mods)
@@ -76,7 +81,7 @@ network hostChan GlobalE {..} = mdo
       bindings (_, Key'Q          , _, KeyState'Pressed, _   ) = pure $ Close      ==> ()
       bindings _                                               = []
 
-      controls = fan . fmap DM.fromList $ bindings <$> keyE
+      controls = fan . fmap DMap.fromList $ bindings <$> keyE
 
       onE         = controls `select` On
       offE        = controls `select` Off
@@ -134,7 +139,7 @@ network hostChan GlobalE {..} = mdo
                          callback tick
                  ) <$> fpsB <*> configB <@> tickE
 
-  return closeE
+  return shutdownE
 
 
 

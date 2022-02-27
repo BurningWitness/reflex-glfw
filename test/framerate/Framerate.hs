@@ -11,12 +11,11 @@ import           Reflex.Time.Framerate
 
 import           Control.Exception (bracket)
 import           Control.Monad
-import           Control.Monad.IO.Class
 import qualified Data.ByteString as BS
 import           Data.Fixed
 import           Data.Functor
 import           Data.GADT.Compare.TH
-import           Data.Dependent.Map as DM
+import           Data.Dependent.Map as DMap
 import           Data.Dependent.Sum
 import           Data.Sequence as S
 import qualified Data.Vector.Storable as VS
@@ -136,15 +135,19 @@ network
 network hostChan GlobalE {..} = mdo
 
   (windowFan, windowB, WindowE {..}) <-
-    createWindow
-      hostChan
-      ( CreateWindow (500, 500) "TestMain" Nothing Nothing <$ postBuildE
-      )
-      $ shutdownE
+    createWindow hostChan $
+      fan $ mergeWith (<>)
+              [ postBuildE $> DMap.singleton Create (pure $ CreateWindow (500, 500) "TestMain" Nothing Nothing)
+              , closedE    $> DMap.singleton Destroy mempty
+              ]
 
-  let createdWindowE = select windowFan CreatedWindow
+  let createdWindowE = select windowFan Created
+      shutdownE      = leftmost
+                         [ select windowFan Destroyed
+                         , select windowFan Failed
+                         ]
 
-  let bindings (_, Key'O          , _, KeyState'Pressed, _   ) = pure $ GoOff ==> ()
+      bindings (_, Key'O          , _, KeyState'Pressed, _   ) = pure $ GoOff ==> ()
       bindings (_, Key'U          , _, KeyState'Pressed, _   ) = pure $ GoUnlimited ==> ()
       bindings (_, Key'F          , _, KeyState'Pressed, _   ) = pure $ GoFrames ==> ()
       bindings (_, Key'V          , _, KeyState'Pressed, _   ) = pure $ GoVSync ==> ()
@@ -160,7 +163,7 @@ network hostChan GlobalE {..} = mdo
       bindings (_, Key'Q          , _, KeyState'Pressed, _   ) = pure $ Close ==> ()
       bindings _                                               = []
 
-      controls = fan . fmap DM.fromList $ bindings <$> keyE
+      controls = fan . fmap DMap.fromList $ bindings <$> keyE
 
       offE       = controls `select` GoOff
       unlimitedE = controls `select` GoUnlimited
@@ -173,12 +176,16 @@ network hostChan GlobalE {..} = mdo
 
   cursorPosB <- hold (-100, -100) $ (\(_, x, y) -> (x, y)) <$> cursorPosE
 
-  (drawChan, drawChanE) <- newBoundChannel $ leftmost
-                                               [ True <$ postBuildE
-                                               , False <$ closeE
-                                               ]
+  (drawChan, drawFan) <- newBoundChannel . fan $ mergeWith (<>)
+                                                   [ postBuildE $> DMap.singleton Create  mempty
+                                                   , closeE     $> DMap.singleton Destroy mempty
+                                                   ]
+  let closedE = leftmost
+                  [ select drawFan Destroyed
+                  , () <$ select drawFan Failed
+                  ]
 
-  let configE = leftmost
+      configE = leftmost
                   [ Nothing           <$ closeE
                   , Nothing           <$ offE
                   , Just Unlimited    <$ unlimitedE
@@ -284,9 +291,6 @@ network hostChan GlobalE {..} = mdo
 
                        return $ tId tick
                    ) <$> windowB <*> cursorPosB <*> windowSizeB <*> fpsB <@> frameE
-
-  -- Crash prevention. We wait for the draw channel to finish before exiting.
-  shutdownE <- performEvent $ liftIO (return ()) <$ ffilter not drawChanE
 
   return shutdownE
 

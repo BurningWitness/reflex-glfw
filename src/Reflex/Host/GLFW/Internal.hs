@@ -1,3 +1,7 @@
+{-# LANGUAGE DataKinds
+           , GADTs
+           , KindSignatures #-}
+
 {-# OPTIONS_HADDOCK not-home #-}
 
 module Reflex.Host.GLFW.Internal where
@@ -7,6 +11,8 @@ import           Control.Concurrent.STM
 import           Control.Monad.Ref
 import           Data.Bifunctor.Flip
 import           Data.Dependent.Sum
+import           Data.GADT.Compare
+import           Data.Typeable
 import           Reflex
 import           Reflex.Host.Class
 
@@ -53,3 +59,44 @@ setup chan ref callback conv shrink =
   callback . Just . shrink $ \a -> do
     res <- conv a
     writeChan chan [EventTriggerRef ref :=> TriggerInvocation res (return ())]
+
+
+
+data Action (t :: *) (a :: *) where
+  Create    :: Action t t
+  Destroy   :: Action t ()
+
+instance GEq (Action t) where
+  Create  `geq` Create  = Just Refl
+  Destroy `geq` Destroy = Just Refl
+  _       `geq` _       = Nothing
+
+instance GCompare (Action t) where
+  Create  `gcompare` Create  = GEQ
+  Create  `gcompare` Destroy = GGT
+  Destroy `gcompare` Create  = GLT
+  Destroy `gcompare` Destroy = GEQ
+
+
+
+data Result (t :: *) (e :: *) (a :: *) where
+  Created   :: Result t e t
+  Destroyed :: Result t e ()
+  Failed    :: Result t e e
+
+instance GEq (Result t e) where
+  Created   `geq` Created   = Just Refl
+  Destroyed `geq` Destroyed = Just Refl
+  Failed    `geq` Failed    = Just Refl
+  _         `geq` _         = Nothing
+
+instance GCompare (Result t e) where
+  Created   `gcompare` Created   = GEQ
+  Created   `gcompare` _         = GGT
+  _         `gcompare` Created   = GLT
+
+  Destroyed `gcompare` Destroyed = GEQ
+  Destroyed `gcompare` _         = GGT
+  _         `gcompare` Destroyed = GLT
+
+  Failed    `gcompare` Failed    = GEQ

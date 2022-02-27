@@ -11,7 +11,6 @@
 module Reflex.Host.GLFW.Window
   ( WindowE (..)
   , CreateWindow (..)
-  , WindowAction (..)
   , Def
   , Conversion (..)
   , createWindow'
@@ -24,12 +23,9 @@ import           Control.Concurrent.Chan
 import           Control.Monad.IO.Class
 import           Data.Dependent.Sum
 import           Data.Dependent.Map as DMap
-import           Data.Functor.Identity
-import           Data.GADT.Compare
 import           Data.Maybe
 import           Data.Proxy
 import           Data.Traversable
-import           Data.Typeable
 import           Graphics.UI.GLFW as GLFW
 import           Reflex
 import           Reflex.Host.Class
@@ -218,30 +214,6 @@ instance Conversion Def where
 data CreateWindow = CreateWindow (Int, Int) String (Maybe Monitor) (Maybe Window)
 
 
--- | Types of window events.
-data WindowAction (state :: *) where
-  CouldNotCreateWindow :: WindowAction ()
-  CreatedWindow        :: WindowAction Window
-  DestroyedWindow      :: WindowAction Window
-
-instance GEq WindowAction where
-  geq CouldNotCreateWindow CouldNotCreateWindow = Just Refl
-  geq CreatedWindow        CreatedWindow        = Just Refl
-  geq DestroyedWindow      DestroyedWindow      = Just Refl
-  geq _                    _                    = Nothing
-
-instance GCompare WindowAction where
-  gcompare CouldNotCreateWindow CouldNotCreateWindow = GEQ
-  gcompare CouldNotCreateWindow _                    = GGT
-  gcompare _                    CouldNotCreateWindow = GGT
-
-  gcompare CreatedWindow        CreatedWindow        = GEQ
-  gcompare CreatedWindow        _                    = GLT
-  gcompare _                    CreatedWindow        = GLT
-
-  gcompare DestroyedWindow      DestroyedWindow      = GEQ
-
-
 
 -- | Initializes all the callbacks if a window was created successfully.
 hostWindow
@@ -318,13 +290,15 @@ createWindow'
      )
   => Proxy c                      -- ^ Conversion type
   -> HostChannel
-  -> Event t CreateWindow         -- ^ Window creation event
-  -> Event t ()                   -- ^ Window destruction event
-  -> GLFWHost ( EventSelector t WindowAction
+  -> EventSelector t (Action CreateWindow)
+  -> GLFWHost ( EventSelector t (Result Window ())
               , Behavior t (Maybe Window)
               , WindowE c t
               )
-createWindow' (conv :: Proxy c) hostChan (bearE :: Event t CreateWindow) killE = mdo
+createWindow' (conv :: Proxy c) hostChan (actionFan :: EventSelector t (Action CreateWindow)) = mdo
+
+  let bearE = select actionFan Create
+      killE = select actionFan Destroy
 
   chan <- askEvents
 
@@ -349,9 +323,9 @@ createWindow' (conv :: Proxy c) hostChan (bearE :: Event t CreateWindow) killE =
   return
     ( fan $ mergeWith (<>) [ flip fmap createdE $ \mayWin ->
                                     case mayWin of
-                                      Nothing       -> DMap.singleton CouldNotCreateWindow mempty
-                                      Just (win, _) -> DMap.singleton CreatedWindow $ Identity win
-                           , DMap.singleton DestroyedWindow . Identity <$> destroyedE
+                                      Nothing       -> DMap.singleton Failed mempty
+                                      Just (win, _) -> DMap.singleton Created $ pure win
+                           , DMap.singleton Destroyed mempty <$ destroyedE
                            ]
     , windowB
     , let grab :: (WindowE c t -> Event t a) -> Event t a

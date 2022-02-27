@@ -1,13 +1,13 @@
-{-# LANGUAGE CPP #-}
-{-# LANGUAGE DataKinds #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE RecursiveDo #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE CPP
+           , DataKinds
+           , FlexibleContexts
+           , FlexibleInstances
+           , GADTs
+           , RecordWildCards
+           , RecursiveDo
+           , ScopedTypeVariables
+           , StandaloneDeriving
+           , TypeFamilies #-}
 
 module Reflex.Host.GLFW
   ( -- * Host
@@ -19,7 +19,8 @@ module Reflex.Host.GLFW
     -- * Creating windows
   , WindowE (..)
   , CreateWindow (..)
-  , WindowAction (..)
+  , Action (..)
+  , Result (..)
   , Reflex.Host.GLFW.createWindow
   , contextWindow
     -- ** Overloading window callbacks
@@ -50,7 +51,6 @@ import           Data.Bifunctor.Flip
 import           Data.Dependent.Sum
 import           Data.Dependent.Map as DMap
 import           Data.Foldable
-import           Data.Functor.Identity
 import           Data.Maybe
 import           Data.Proxy
 import           Data.Traversable
@@ -73,10 +73,12 @@ data GlobalE t =
 
 
 
--- | 'GLFW.createWindow' counterpart. One event creates a window, the other one destroys.
+-- | 'GLFW.createWindow' counterpart.
 --   
 --   If the creation 'Event' happens with a 'Window' already existing, it is ignored.
 --   Same with destroying a window after it has already been destroyed.
+--
+--   If 'GLFW.createWindow' returns a 'Nothing', 'Failed' is returned instead of 'Created'.
 --
 --   'Window' can be created anew after destruction.
 --
@@ -89,9 +91,8 @@ createWindow
   :: ( SpiderTimeline Global ~ t
      )
   => HostChannel
-  -> Event t CreateWindow         -- ^ Window creation event
-  -> Event t ()                   -- ^ Window destruction event
-  -> GLFWHost ( EventSelector t WindowAction
+  -> EventSelector t (Action CreateWindow)           -- ^ Window creation event
+  -> GLFWHost ( EventSelector t (Result Window ())
               , Behavior t (Maybe Window)
               , WindowE Def t
               )
@@ -106,10 +107,13 @@ createWindow = createWindow' Proxy
 contextWindow
   :: SpiderTimeline Global ~ t
   => HostChannel
-  -> Event t CreateWindow
-  -> Event t ()
-  -> GLFWHost (EventSelector t WindowAction, Behavior t (Maybe Window))
-contextWindow hostChan bearE killE = mdo
+  -> EventSelector t (Action CreateWindow)
+  -> GLFWHost (EventSelector t (Result Window ()), Behavior t (Maybe Window))
+contextWindow hostChan actionFan = mdo
+
+  let bearE = select actionFan Create
+      killE = select actionFan Destroy
+
   createdE <- performEventOn hostChan $ ( \(CreateWindow (w, h) name moni con) -> do
                                             windowHint $ WindowHint'Visible False
                                             mayInvis <- GLFW.createWindow w h name moni con
@@ -122,15 +126,13 @@ contextWindow hostChan bearE killE = mdo
                                  , Nothing <$ destroyedE
                                  ]
 
-  destroyedE <- performEventOn hostChan $ ( \win -> do GLFW.destroyWindow win
-                                                       return win
-                                          ) <$> do tagMaybe mayWindowB killE
+  destroyedE <- performEventOn hostChan $ GLFW.destroyWindow <$> tagMaybe mayWindowB killE
 
   return ( fan . mergeWith (<>) $ [ flip fmap createdE $ \mayWindow ->
                                                 case mayWindow of
-                                                  Just win -> DMap.singleton CreatedWindow $ Identity win
-                                                  Nothing  -> DMap.singleton CouldNotCreateWindow mempty
-                                  , DMap.singleton DestroyedWindow . Identity <$> destroyedE
+                                                  Just win -> DMap.singleton Created $ pure win
+                                                  Nothing  -> DMap.singleton Failed mempty
+                                  , DMap.singleton Destroyed mempty <$ destroyedE
                                   ]
          , mayWindowB
          )

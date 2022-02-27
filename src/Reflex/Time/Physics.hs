@@ -1,9 +1,9 @@
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE RecursiveDo #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE FlexibleContexts
+           , GeneralizedNewtypeDeriving
+           , LambdaCase
+           , RecursiveDo
+           , ScopedTypeVariables
+           , TypeFamilies #-}
 
 module Reflex.Time.Physics
   ( PhysTick (..)

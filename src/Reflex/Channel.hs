@@ -1,9 +1,9 @@
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE RecursiveDo #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE FlexibleContexts
+           , FlexibleInstances
+           , FunctionalDependencies
+           , RecursiveDo
+           , TypeFamilies
+           , UndecidableInstances #-}
 
 module Reflex.Channel
   ( -- * Channel
@@ -15,15 +15,17 @@ module Reflex.Channel
   , performEventAsyncOn
   ) where
 
-import           Reflex.Host.GLFW.Internal (Channel (..), HostChannel (..))
+import           Reflex.Host.GLFW.Internal
 
 import           Control.Concurrent
 import           Control.Concurrent.STM
+import           Control.Exception
 import           Control.Monad
 import           Control.Monad.Fix
 import           Control.Monad.IO.Class
 import           Data.Bifunctor.Flip
 import           Data.Dependent.Sum
+import           Data.Dependent.Map as DMap
 import           Data.Foldable (for_)
 import           Graphics.UI.GLFW
 import           Prelude
@@ -40,15 +42,15 @@ newChannel
      , TriggerEvent t m
      )
   => (IO () -> IO ThreadId)
-  -> Event t Bool
-  -> m (Channel, Event t Bool)
-newChannel fork openCloseE = mdo
+  -> EventSelector t (Action ())
+  -> m (Channel, EventSelector t (Result () SomeException))
+newChannel fork actionFan = mdo
 
   (tchan, alive) <- liftIO . atomically $ (,) <$> newTQueue
                                               <*> newTMVar False
 
-  let openE  = ffilter id openCloseE
-      closeE = ffilter not openCloseE
+  let openE  = select actionFan Create
+      closeE = select actionFan Destroy
 
   doneE <-
     performEventAsync $
@@ -69,9 +71,13 @@ newChannel fork openCloseE = mdo
                                               Nothing  -> return []
                                 return $ el : elRest
 
-                 for_ eventList $ \events ->
-                   for_ events $ \(Flip outRef :=> io) ->
-                     io >>= outRef
+                 handle (\e -> do callback $ DMap.singleton Failed (pure e)
+                                  _ <- atomically $ swapTMVar alive False
+                                  throw e
+                        ) $
+                   for_ eventList $ \events ->
+                     for_ events $ \(Flip outRef :=> io) ->
+                       io >>= outRef
 
                  stillAlive <- atomically $ takeTMVar alive
 
@@ -80,28 +86,24 @@ newChannel fork openCloseE = mdo
                      atomically $ putTMVar alive True
                      loop
                    else do
-                     callback False
+                     callback $ DMap.singleton Destroyed (pure ())
                      atomically $ putTMVar alive False
 
-              callback True
+              callback $ DMap.singleton Created (pure ())
       ) <$ openE
 
   let channel = Channel tchan alive
 
   performEventOn_ channel $ atomically (() <$ swapTMVar alive False) <$ closeE
 
-  return (channel, doneE)
+  return (channel, fan doneE)
 
 
 
--- | Initializes a new __bound__ 'Channel'.
+-- | Initializes a new 'Channel' on a __bound__ thread.
 --
---   The input 'Event' determines thread operation: passing @True@ creates a thread,
---   while passing @False@ makes the thread exit after it's done processing.
---
---   The output 'Event' is a mirror of the input one, confirming creation or exiting of
---   the thread. It is handled by the trigger thread and will properly
---   fire a @False@ if an exception is raised in the thread.
+--   Any exception raised on this channel returns a 'Failed' result holding said exception,
+--   then rethrows it to crash the thread the channel runs on.
 newBoundChannel
   :: ( MonadIO m
      , MonadIO (Performable m)
@@ -109,15 +111,16 @@ newBoundChannel
      , ReflexHost t
      , TriggerEvent t m
      )
-  => Event t Bool
-  -> m (Channel, Event t Bool)
+  => EventSelector t (Action ())
+  -> m (Channel, EventSelector t (Result () SomeException))
 newBoundChannel = newChannel forkOS
 
--- | Initializes a new __unbound__ 'Channel'.
+-- | Initializes a new 'Channel' channel on an __unbound__ thread.
 --
 --   Same reasoning as with 'newBoundChannel'.
 --
---   No real benefit over just using 'forkIO' on the trigger thread.
+--   No real benefit over just using 'forkIO' on the trigger thread other than perhaps
+--   exception handling.
 newUnboundChannel
   :: ( MonadIO m
      , MonadIO (Performable m)
@@ -125,8 +128,8 @@ newUnboundChannel
      , ReflexHost t
      , TriggerEvent t m
      )
-  => Event t Bool
-  -> m (Channel, Event t Bool)
+  => EventSelector t (Action ())
+  -> m (Channel, EventSelector t (Result () SomeException))
 newUnboundChannel = newChannel forkIO
 
 

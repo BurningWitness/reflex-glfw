@@ -5,6 +5,8 @@
 module Context where
 
 import           Control.Exception
+import           Data.Dependent.Map as DMap
+import           Data.Functor (($>))
 import           Graphics.GL
 import qualified Graphics.UI.GLFW as GLFW
 import           Foreign.Marshal.Alloc
@@ -24,39 +26,44 @@ network
   -> GLFWHost (Event t ())
 network hostChan GlobalE {..} = mdo
   (mainFan, mainB, _windowE) <-
-    createWindow
-      hostChan
-      ( CreateWindow (500, 500) "TestMain" Nothing Nothing <$ postBuildE )
-      cascade1E
+    createWindow hostChan $
+      fan $ mergeWith (<>)
+              [ postBuildE $> DMap.singleton Create  (pure $ CreateWindow (500, 500) "TestMain" Nothing Nothing)
+              , cascade1E  $> DMap.singleton Destroy mempty
+              ]
 
-  let newMainE  = select mainFan CreatedWindow
-      cascade0E = leftmost [ () <$ select mainFan DestroyedWindow
-                           , select mainFan CouldNotCreateWindow
+  let newMainE  = select mainFan Created
+      cascade0E = leftmost [ select mainFan Destroyed
+                           , select mainFan Failed
                            ]
 
   (auxFan, _auxB) <-
-    contextWindow
-      hostChan
-      ( CreateWindow (32, 32) "Context window" Nothing . Just <$> newMainE )
-      cascade2E
+    contextWindow hostChan $
+      fan $ mergeWith (<>)
+              [ DMap.singleton Create . pure . CreateWindow (32, 32) "Context window" Nothing . Just <$> newMainE
+              , cascade2E $> DMap.singleton Destroy mempty
+              ]
 
-  let newAuxE   = select auxFan CreatedWindow
-      cascade1E = leftmost [ () <$ select auxFan DestroyedWindow
-                           , select auxFan CouldNotCreateWindow
+  let newAuxE   = select auxFan Created
+      cascade1E = leftmost [ select auxFan Destroyed
+                           , select auxFan Failed
                            ]
 
-  (drawChan, drawChanE) <- newBoundChannel $ leftmost
-                                               [ True <$ postBuildE
-                                               , False <$ cascade3E
-                                               ]
+  (drawChan, drawFan) <- newBoundChannel . fan $ mergeWith (<>)
+                                                   [ postBuildE $> DMap.singleton Create  mempty
+                                                   , cascade3E  $> DMap.singleton Destroy mempty
+                                                   ]
 
-  (contextChan, contextChanE) <- newBoundChannel $ leftmost
-                                                     [ True <$ postBuildE
-                                                     , False <$ cascade4E
-                                                     ]
-
-  let cascade3E = () <$ ffilter not contextChanE
-      cascade2E = () <$ ffilter not drawChanE
+  (contextChan, contextFan) <- newBoundChannel . fan $ mergeWith (<>)
+                                                         [ postBuildE $> DMap.singleton Create  mempty
+                                                         , cascade4E  $> DMap.singleton Destroy mempty
+                                                         ]
+  let cascade3E = leftmost [ select contextFan Destroyed
+                           , () <$ select contextFan Failed
+                           ]
+      cascade2E = leftmost [ select drawFan Destroyed
+                           , () <$ select drawFan Failed
+                           ]
 
   postDrawE <- performEventOn drawChan . flip fmap newAuxE $ \w -> do
                                            makeContextCurrent $ Just w
@@ -65,7 +72,6 @@ network hostChan GlobalE {..} = mdo
                                                     peek ptr
                                            glBindTexture GL_TEXTURE_2D tex
                                            glTexParameterf GL_TEXTURE_2D GL_TEXTURE_MIN_LOD 123
-                                           print (w, tex)
                                            return tex
 
   cascade4E <- performEventOn contextChan $ let f (Just w) tex = do

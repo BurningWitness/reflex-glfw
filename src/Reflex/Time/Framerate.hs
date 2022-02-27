@@ -1,10 +1,10 @@
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE RecursiveDo #-}
-{-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE FlexibleContexts
+           , GADTs
+           , GeneralizedNewtypeDeriving
+           , RecordWildCards
+           , RecursiveDo
+           , TemplateHaskell
+           , TypeFamilies #-}
 
 module Reflex.Time.Framerate
   ( Tick (..)
