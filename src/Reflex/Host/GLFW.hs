@@ -57,6 +57,7 @@ import           Data.Traversable
 import           Graphics.UI.GLFW as GLFW
 import           Reflex
 import           Reflex.Host.Class
+import           Reflex.Spider.Internal (ReadPhase (..), EventM (..))
 
 
 
@@ -74,7 +75,7 @@ data GlobalE t =
 
 
 -- | 'GLFW.createWindow' counterpart.
---   
+--
 --   If the creation 'Event' happens with a 'Window' already existing, it is ignored.
 --   Same with destroying a window after it has already been destroyed.
 --
@@ -145,7 +146,7 @@ contextWindow hostChan actionFan = mdo
 --   to be initialized before calling 'hostGLFW' and terminated after. No window
 --   contexts are set up or cleaned up either.
 --
---   The output 'Event' quits 'hostGLFW'.
+--   The output 'Event' quits 'hostGLFW' immediately, returning the value.
 --
 --   === MULTITHREADING
 --
@@ -163,81 +164,85 @@ hostGLFW
      )
   => ( HostChannel
     -> GlobalE t
-    -> GLFWHost (Event t ())
+    -> GLFWHost (Event t a)
      )
-  -> IO ()
+  -> IO a
 hostGLFW network =
-  runSpiderHost $ mdo
+  join . runSpiderHost $ mdo
+     -- Set up event hooks
+     (postBuildE , postBuildRef) <- newEventWithTriggerRef
 
-    -- Set up event hooks
-    (postBuildE , postBuildRef) <- newEventWithTriggerRef
+     (errorE     ,     errorRef) <- newEventWithTriggerRef
+     (monitorE   ,   monitorRef) <- newEventWithTriggerRef
+     (joystickE  ,  joystickRef) <- newEventWithTriggerRef
 
-    (errorE     ,     errorRef) <- newEventWithTriggerRef
-    (monitorE   ,   monitorRef) <- newEventWithTriggerRef
-    (joystickE  ,  joystickRef) <- newEventWithTriggerRef
+     -- Channel for triggering events in another thread
+     triggerChan <- liftIO newChan
+     -- Channel for relaying events back onto the main thread
+     hostChan <- liftIO newTQueueIO
 
-    -- Channel for triggering events in another thread
-    triggerChan <- liftIO newChan
-    -- Channel for relaying events back onto the main thread
-    hostChan <- liftIO newTQueueIO
+     (shutdownE, FireCommand fireCommand)
+       <- hostPerformEventT
+            . flip runPostBuildT postBuildE
+            . flip runTriggerEventT triggerChan
+            $ network (HostChannel hostChan) GlobalE {..}
 
-    (shutdownE, FireCommand fireCommand)
-      <- hostPerformEventT
-           . flip runPostBuildT postBuildE
-           . flip runTriggerEventT triggerChan
-           $ network (HostChannel hostChan) GlobalE {..}
- 
-    shutdownH <- subscribeEvent shutdownE
+     shutdownH <- subscribeEvent shutdownE
 
-    quitRef <- newRef False
+     quitRef <- newRef Nothing
 
-    -- Set up all the non-window callbacks
-    liftIO $ do
-      setup triggerChan    errorRef setErrorCallback    return $ \f e s -> f (e, s)
-      setup triggerChan  monitorRef setMonitorCallback  return $ \f m s -> f (m, s)
-      setup triggerChan joystickRef setJoystickCallback return $ \f j s -> f (j, s)
+     -- Set up all the non-window callbacks
+     liftIO $ do
+       setup triggerChan    errorRef setErrorCallback    return $ \f e s -> f (e, s)
+       setup triggerChan  monitorRef setMonitorCallback  return $ \f m s -> f (m, s)
+       setup triggerChan joystickRef setJoystickCallback return $ \f j s -> f (j, s)
 
-    pbRef <- readRef postBuildRef
-    for_ pbRef $ \t ->
-      fireCommand [t ==> ()] $ return ()
+     pbRef <- readRef postBuildRef
+     for_ pbRef $ \t ->
+       fireCommand [t ==> ()] $ return ()
 
-    triggerThread <-
-      liftIO . forkIO . forever $ do
+     triggerThread <-
+       liftIO . forkIO . forever $ do
 
-        events <- readChan triggerChan
+         events <- readChan triggerChan
 
-        runSpiderHost $ do
-          evs <- liftIO .
-                   for events $ \(EventTriggerRef evRef :=> TriggerInvocation val _) -> do
-                     ev <- readRef evRef
-                     return $ fmap (==> val) ev
+         runSpiderHost $ do
+           evs <- liftIO .
+                    for events $ \(EventTriggerRef evRef :=> TriggerInvocation val _) -> do
+                      ev <- readRef evRef
+                      return $ fmap (==> val) ev
 
-          toShutdown <- fireCommand (catMaybes evs) $ readEvent shutdownH
+           toShutdown <- fireCommand (catMaybes evs) $ readEvent shutdownH
 
-          liftIO .
-            for_ events $ \(_ :=> TriggerInvocation _ callback) ->
-              callback
+           liftIO .
+             for_ events $ \(_ :=> TriggerInvocation _ callback) ->
+               callback
 
-          when (any isJust toShutdown) $ do
-            writeRef quitRef True
-            liftIO postEmptyEvent
+           case catMaybes toShutdown of
+             []                       -> return ()
+             ReadPhase (EventM a) : _ -> do
+               writeRef quitRef $ Just a
+               liftIO postEmptyEvent
 
-    liftIO .
-      finally
-        ( fix $ \loop -> do
+     liftIO .
+       finally
+         ( fix $ \loop -> do
 
-            eventList <- atomically $ flushTQueue hostChan
+             eventList <- atomically $ flushTQueue hostChan
 
-            for_ eventList $ \events ->
-              for_ events $ \(Flip outRef :=> io) ->
-                io >>= outRef
+             for_ eventList $ \events ->
+               for_ events $ \(Flip outRef :=> io) ->
+                 io >>= outRef
 
-            -- Check whether we should quit
-            hasQuit <- readRef quitRef
+             -- Check whether we should quit
+             hasQuit <- readRef quitRef
 
-            unless hasQuit $ do
-              GLFW.waitEvents
-              loop
-        )
-        -- Cleanup after the program quits
-        $ killThread triggerThread
+             case hasQuit of
+               Nothing -> do
+                 GLFW.waitEvents
+                 loop
+
+               Just a  -> return a
+         )
+         -- Cleanup after the program quits
+         $ killThread triggerThread
